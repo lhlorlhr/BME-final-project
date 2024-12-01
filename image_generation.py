@@ -170,7 +170,7 @@ def generate_reconstruction(projection_data, H_MP):
         "Low": 50000,
         "Medium": 25000,
         "High": 10000,
-        "Very High": 2500
+        "Very_High": 2500
     }
     noisy_projections = {}
 

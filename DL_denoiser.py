@@ -32,7 +32,8 @@ K.set_image_data_format('channels_last')
 
 from keras.models import Model
 from keras.layers import Input, Conv2D, Conv2DTranspose, Dropout, Add
-from keras.layers.advanced_activations import LeakyReLU
+# from keras.layers.advanced_activations import LeakyReLU
+from keras.layers import LeakyReLU
 from keras.initializers import Constant
 from keras.regularizers import l2
 from keras.models import load_model

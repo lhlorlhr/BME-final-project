@@ -6,7 +6,7 @@ from skimage.transform import resize
 
 # 7(a) Population generation
 # Define parameters for grid, signal, and background
-grid_size = 32  # 64x64 pixels
+grid_size = 64  # 64x64 pixels
 signal_center = (0, 0) # Center of the signal (0, 0)
 sigma_s = 1 / 4  # Signal radius (σ_s)
 A_s = 3  # Signal amplitude
@@ -22,16 +22,13 @@ def generate_grid(grid_size):
     r_x, r_y = np.meshgrid(x, y)
     return r_x, r_y
 
-
 X, Y = generate_grid(grid_size)
-
 
 def generate_signal(X, Y, signal_center, sigma_s, A_s):
     r = np.sqrt((X - signal_center[0])**2 + (Y - signal_center[1])**2)
     signal = np.zeros_like(r)
     signal[r <= sigma_s] = A_s
     return signal
-
 
 def generate_background(grid_size, X, Y):
     background = np.zeros((grid_size, grid_size))
@@ -96,6 +93,16 @@ def plot_generated_objects(signal, background, signal_present):
 pixel_sizes = [32] # If focus on one size
 
 
+def downsample(signal_present, signal_absent, factor=2):
+    """Downsample the image by averaging over non-overlapping blocks."""
+    # Get the shape of the downsampled image
+    new_size = signal_present.shape[0] // factor
+    # Reshape and compute the mean
+    signal_present = signal_present.reshape(new_size, factor, new_size, factor).mean(axis=(1, 3))
+    signal_absent = signal_absent.reshape(new_size, factor, new_size, factor).mean(axis=(1, 3))
+    return signal_present, signal_absent
+
+
 def generate_system_matrix(M, pixel_sizes):
     system_matrix = []
     num_strips = 32  # Number of horizontal strips = Number of sensitivity functions
@@ -103,8 +110,10 @@ def generate_system_matrix(M, pixel_sizes):
     num_rotations = 16
     for size in pixel_sizes:
         H = np.zeros((M, size**2))
-        x = np.linspace(-0.5, 0.5, size)
-        y = np.linspace(-0.5, 0.5, size)
+        # x = np.linspace(-0.5, 0.5, size)
+        # y = np.linspace(-0.5, 0.5, size)
+        x = np.linspace(-1, 1, size)
+        y = np.linspace(-1, 1, size)
         xx, yy = np.meshgrid(x, y)
         # fov_mask = (xx**2 + yy**2) <= 1
 
@@ -185,6 +194,17 @@ def generate_reconstruction(projection_data, H_MP):
 
     return reconstructed_images
 
+# Add Poisson noise at different levels
+def generate_noise(projection_data):
+    noisy_projections = {}
+
+    for level, scale in noise_levels.items():
+        scaled_projections = projection_data * (scale / np.sum(projection_data, axis=1, keepdims=True))
+        noisy_projections[level] = np.random.poisson(scaled_projections)
+
+    return noisy_projections
+
+
 # Visualize a sample reconstruction for each noise level
 def plot_reconstruction(num_realizations, reconstructed_images, original_image, selected_size):
     sample_index = np.random.randint(num_realizations)
@@ -194,38 +214,104 @@ def plot_reconstruction(num_realizations, reconstructed_images, original_image, 
     axs[0].axis('off')
 
     for i, (level, recon_images) in enumerate(reconstructed_images.items()):
-        axs[i + 1].imshow(recon_images[sample_index].reshape(selected_size, selected_size), cmap='viridis')
+        axs[i + 1].imshow(recon_images[sample_index].reshape(32, 16), cmap='viridis')
         axs[i + 1].set_title(f'Reconstruction ({level} Noise)')
 
     plt.tight_layout()
     plt.show()
-
-
+    plt.close()
 
 
 
 num_realizations = 500
 selected_size = pixel_sizes[0] # Example pixel size
+noise_levels = {
+    "Low": 50000,
+    "Medium": 25000,
+    "High": 10000,
+    "Very_High": 2500
+}
 # system_matrices = {}  # Store system matrices for each pixel size
 system_matrices = generate_system_matrix(M, pixel_sizes)
 H = system_matrices[0]
 _, H_MP = generate_pseudoinverse(selected_size, H) # Print singular values and vectors or not?
 
-signal_present_objects, signal_absent_objects = generate_multiple_objects(signal_present, signal_absent, grid_size = selected_size, J = 500)
+# Downsampling a 64x64 image to 32x32
+downsampled_present, downsampled_absent = downsample(signal_present, signal_absent)  # Downsample by 2
+# downsampled_absent = downsample(signal_absent)
+print("Original shape:", signal_present.shape)
+print("Downsampled signal present:", downsampled_present.shape)
+print("Downsampled signal absent:", downsampled_absent.shape)
+
+# signal_present_objects, signal_absent_objects = generate_multiple_objects(signal_present, signal_absent, grid_size = selected_size, J = 500)
+signal_present_objects, signal_absent_objects = generate_multiple_objects(downsampled_present, downsampled_absent, grid_size = selected_size, J = 500)
 signal_present_realizations = signal_present_objects.reshape(500, -1)
 signal_absent_realizations = signal_absent_objects.reshape(500, -1)
 
-projection_data_present = np.dot(H, signal_present_realizations.T).T  # g = Hf, (500, grid x grid)
-projection_data_absent = np.dot(H, signal_absent_realizations.T).T
-projection_data = [projection_data_present, projection_data_absent]
+projection_data_present = np.dot(H, signal_present_realizations.T).T  # g = Hf, (512, 32x32) * (500, 32x32)^T = (512, 500)
+projection_data_absent = np.dot(H, signal_absent_realizations.T).T # (512, 500)^T = (500, 512)
+# projection_data = [projection_data_present, projection_data_absent]
 
-reconstructed_present = generate_reconstruction(projection_data[0], H_MP)
-reconstructed_absent = generate_reconstruction(projection_data[1], H_MP)
+noisy_projection_present = generate_noise(projection_data_present)
+noisy_projection_absent = generate_noise(projection_data_absent)
 
-reconstructed_present_graph = plot_reconstruction(num_realizations, reconstructed_present, signal_present_objects, selected_size)
-reconstructed_absent_graph = plot_reconstruction(num_realizations, reconstructed_absent, signal_absent_objects, selected_size)
+reconstructed_present = generate_reconstruction(projection_data_present, H_MP)
+reconstructed_absent = generate_reconstruction(projection_data_absent, H_MP)
 
-# print(reconstructed_present.shape)
+noised_signal_present_graph = plot_reconstruction(num_realizations, noisy_projection_present, signal_present_objects, selected_size)
+noised_signal_absent_graph = plot_reconstruction(num_realizations, noisy_projection_absent, signal_absent_objects, selected_size)
+
+print(noisy_projection_present.shape)
+
+
+# 7(c) for CNN training
+
+
+
+# def prepare_datasets(noise_level, noisy_projection_present, noisy_projection_absent):
+#     # Shuffle the datasets
+#     np.random.seed(42)  # For reproducibility
+#     indices = np.random.permutation(1000)
+#     # Split indices for training, validation, and testing
+#     train_idx = indices[:600]
+#     val_idx = indices[600:800]
+#     test_idx = indices[800:]
+#     for noise_level in noisy_projection_present.keys():
+#         print(f"Processing noise level: {noise_level}")  # Debugging print
+
+#         noisy_images = np.concatenate([noisy_projection_present[noise_level], noisy_projection_absent[noise_level]], axis=0)
+#         low_noise_images = np.concatenate([noisy_projection_present["Low"], noisy_projection_absent["Low"]], axis=0)
+#         print(f"Noisy images shape before reshaping: {noisy_images.shape}")
+#         print(f"Low noise images shape before reshaping: {low_noise_images.shape}")
+
+#         # Check for NaN and infinite values
+#         if np.isnan(noisy_images).any() or np.isnan(low_noise_images).any():
+#             print(f"NaN detected in dataset generation for {noise_level}!")
+#             noisy_images = np.nan_to_num(noisy_images, nan=0.0)
+#             low_noise_images = np.nan_to_num(low_noise_images, nan=0.0)
+#         if not np.isfinite(noisy_images).all() or not np.isfinite(low_noise_images).all():
+#             print(f"Infinite values detected in dataset generation for {noise_level}!")
+#             noisy_images = np.nan_to_num(noisy_images, posinf=0.0, neginf=0.0)
+#             low_noise_images = np.nan_to_num(low_noise_images, posinf=0.0, neginf=0.0)
+
+#         # Reshape and save datasets
+#         np.save(f'train_data_{noise_level}.npy', noisy_images[train_idx])
+#         np.save(f'val_data_{noise_level}.npy', noisy_images[val_idx])
+#         np.save(f'test_data_{noise_level}.npy', noisy_images[test_idx])
+
+#         np.save('train_labels.npy', low_noise_images[train_idx])
+#         np.save('val_labels.npy', low_noise_images[val_idx])
+#         np.save('test_labels.npy', low_noise_images[test_idx])
+
+
+# train_data = np.load(f'train_data_{noise_level}.npy')
+# val_data = np.load(f'val_data_{noise_level}.npy')
+# test_data = np.load(f'test_data_{noise_level}.npy')
+
+# train_labels = np.load('train_labels.npy')
+# val_labels = np.load('val_labels.npy')
+# test_labels = np.load('test_labels.npy')
+
 
 
 

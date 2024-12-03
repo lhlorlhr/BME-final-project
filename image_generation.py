@@ -16,34 +16,55 @@ a_n = 1  # Lump amplitude
 M = 32 * 16 # Total number of sensitivity functions
 
 
-def generate_grid(grid_size):
-    x = np.linspace(-1/2, 1/2, grid_size) # rect(r)
-    y = np.linspace(-1/2, 1/2, grid_size)
+# def generate_grid(grid_size):
+#     x = np.linspace(-1/2, 1/2, grid_size) # rect(r)
+#     y = np.linspace(-1/2, 1/2, grid_size)
+#     r_x, r_y = np.meshgrid(x, y)
+#     return r_x, r_y
+
+# X, Y = generate_grid(grid_size)
+
+def circ(r, center_coords, sigma_s):
+    r_x, r_y = r
+    c_x, c_y = center_coords
+    return (r_x - c_x) ** 2 + (r_y-c_y) ** 2 <= sigma_s ** 2
+
+def rect(x):
+    return np.abs(x) < 0.5
+
+def pixelated(r_x, r_y):
+    return np.logical_and(rect(r_x), rect(r_y))
+
+def generate_signal(grid_size, signal_center, sigma_s = 1/4, A_s = 3):
+    x = np.linspace(-1, 1, grid_size) # rect(r)
+    y = np.linspace(-1, 1, grid_size)
     r_x, r_y = np.meshgrid(x, y)
-    return r_x, r_y
-
-X, Y = generate_grid(grid_size)
-
-def generate_signal(X, Y, signal_center, sigma_s, A_s):
-    r = np.sqrt((X - signal_center[0])**2 + (Y - signal_center[1])**2)
-    signal = np.zeros_like(r)
-    signal[r <= sigma_s] = A_s
+    signal = circ(r=(r_x, r_y), center_coords=(signal_center[0], signal_center[1]), sigma_s=sigma_s)
+    pixel = pixelated(r_x, r_y)
+    signal = A_s * pixel * signal
+    # r = np.sqrt((r_x - signal_center[0])**2 + (r_y - signal_center[1])**2)
+    # signal = np.zeros_like(r)
+    # signal[r <= sigma_s] = A_s
     return signal
 
-def generate_background(grid_size, X, Y):
+def generate_background(grid_size, N=10, sigma_n=1/4, a_n=1, num=500):
     background = np.zeros((grid_size, grid_size))
+    x = np.linspace(-1, 1, grid_size)
+    y = np.linspace(-1, 1, grid_size)
+    r_x, r_y = np.meshgrid(x, y)
+    pixel = pixelated(r_x, r_y)
 
     for _ in range(N):
         lump_center_x = np.random.uniform(-0.5, 0.5)
         lump_center_y = np.random.uniform(-0.5, 0.5)
         coeff = a_n / (2 * np.pi * sigma_n ** 2)
-        lump = coeff * np.exp(-((X - lump_center_x)**2 + (Y - lump_center_y)**2) / (2 * sigma_n**2))
+        lump = coeff * np.exp(-((r_x - lump_center_x)**2 + (r_y - lump_center_y)**2) / (2 * sigma_n**2))
         background += lump
 
-    return background
+    return pixel * background
 
-signal = generate_signal(X, Y, signal_center, sigma_s, A_s)
-background = generate_background(grid_size, X, Y)
+signal = generate_signal(grid_size, signal_center)
+background = generate_background(grid_size)
 signal_present = signal + background # Signal-present
 signal_absent = background  # Signal-absent
 
@@ -67,30 +88,35 @@ def plot_generated_objects(signal, background, signal_present):
     fig, axs = plt.subplots(1, 3, figsize=(15, 5))
 
     # Plot signal
-    axs[0].imshow(signal, extent=[-1, 1, -1, 1], cmap="hot", origin="lower")
+    axs[0].imshow(signal, extent=[-1, 1, -1, 1], cmap="viridis", origin="lower")
     axs[0].set_title("Signal (fs)")
     axs[0].set_xlabel("x")
     axs[0].set_ylabel("y")
+    axs[0].axis('off')
 
     # Plot background
-    axs[1].imshow(background, extent=[-1, 1, -1, 1], cmap="hot", origin="lower")
+    axs[1].imshow(background, extent=[-1, 1, -1, 1], cmap="viridis", origin="lower")
     axs[1].set_title("Background (fb)")
     axs[1].set_xlabel("x")
+    axs[1].axis('off')
 
     # Plot combined object
-    axs[2].imshow(signal_present, extent=[-1, 1, -1, 1], cmap="hot", origin="lower")
+    axs[2].imshow(signal_present, extent=[-1, 1, -1, 1], cmap="viridis", origin="lower")
     axs[2].set_title("Object with Signal (f = fs + fb)")
     axs[2].set_xlabel("x")
+    axs[2].axis('off')
 
     plt.tight_layout()
     plt.show()
-    plt.close()
+    # plt.close()
+
+plot_generated_objects(signal, background, signal_present)
 
 
 # Part 7(b) Image generation
 # Initialize lists to store results for different pixel sizes
 # pixel_sizes = [64, 32, 8]  # Dimensions for discretization
-pixel_sizes = [32] # If focus on one size
+pixel_sizes = 32 # If focus on one size
 
 
 def downsample(signal_present, signal_absent, factor=2):
@@ -108,32 +134,32 @@ def generate_system_matrix(M, pixel_sizes):
     num_strips = 32  # Number of horizontal strips = Number of sensitivity functions
     strip_width = 1 / 16  # Width is fixed
     num_rotations = 16
-    for size in pixel_sizes:
-        H = np.zeros((M, size**2))
-        # x = np.linspace(-0.5, 0.5, size)
-        # y = np.linspace(-0.5, 0.5, size)
-        x = np.linspace(-1, 1, size)
-        y = np.linspace(-1, 1, size)
-        xx, yy = np.meshgrid(x, y)
-        # fov_mask = (xx**2 + yy**2) <= 1
+    # for size in pixel_sizes:
+    H = np.zeros((M, pixel_sizes**2))
+    x = np.linspace(-0.5, 0.5, pixel_sizes)
+    y = np.linspace(-0.5, 0.5, pixel_sizes)
+    # x = np.linspace(-1, 1, size)
+    # y = np.linspace(-1, 1, size)
+    xx, yy = np.meshgrid(x, y)
+    # fov_mask = (xx**2 + yy**2) <= 1
 
-        for r in range(num_rotations):
-            rotation_angle = r * (np.pi / num_rotations)
-            rotation_matrix = np.array([
-                [np.cos(rotation_angle), -np.sin(rotation_angle)],
-                [np.sin(rotation_angle), np.cos(rotation_angle)]
-            ])
-            rotated_coordinates = np.dot(rotation_matrix, np.vstack([xx.ravel(), yy.ravel()]))
-            r_y = rotated_coordinates[1, :].reshape(xx.shape)
-            sensitivity = np.zeros_like(r_y)
+    for r in range(num_rotations):
+        rotation_angle = r * (np.pi / num_rotations)
+        rotation_matrix = np.array([
+            [np.cos(rotation_angle), -np.sin(rotation_angle)],
+            [np.sin(rotation_angle), np.cos(rotation_angle)]
+        ])
+        rotated_coordinates = np.dot(rotation_matrix, np.vstack([xx.ravel(), yy.ravel()]))
+        r_y = rotated_coordinates[1, :].reshape(xx.shape)
+        sensitivity = np.zeros_like(r_y)
 
-            for m in range(num_strips):
-                y_min = -1 + m / 16
-                y_max = -1 + (m + 1) / 16
-                strip_index = ((y_min < r_y) & (r_y <= y_max))
-                sensitivity[strip_index] = 1
-                matrix_index = r * num_strips + m
-                H[matrix_index, :] = sensitivity.ravel()
+        for m in range(num_strips):
+            y_min = -1 + m / 16
+            y_max = -1 + (m + 1) / 16
+            strip_index = ((y_min < r_y) & (r_y <= y_max))
+            sensitivity[strip_index] = 1
+            matrix_index = r * num_strips + m
+            H[matrix_index, :] = sensitivity.ravel()
 
         system_matrix.append(H)
 
@@ -214,17 +240,17 @@ def plot_reconstruction(num_realizations, reconstructed_images, original_image, 
     axs[0].axis('off')
 
     for i, (level, recon_images) in enumerate(reconstructed_images.items()):
-        axs[i + 1].imshow(recon_images[sample_index].reshape(32, 16), cmap='viridis')
+        axs[i + 1].imshow(recon_images[sample_index].reshape(selected_size, selected_size), cmap='viridis')
         axs[i + 1].set_title(f'Reconstruction ({level} Noise)')
 
     plt.tight_layout()
     plt.show()
-    plt.close()
+    # plt.close()
 
 
 
 num_realizations = 500
-selected_size = pixel_sizes[0] # Example pixel size
+selected_size = 32
 noise_levels = {
     "Low": 50000,
     "Medium": 25000,
@@ -252,16 +278,16 @@ projection_data_present = np.dot(H, signal_present_realizations.T).T  # g = Hf, 
 projection_data_absent = np.dot(H, signal_absent_realizations.T).T # (512, 500)^T = (500, 512)
 # projection_data = [projection_data_present, projection_data_absent]
 
-noisy_projection_present = generate_noise(projection_data_present)
-noisy_projection_absent = generate_noise(projection_data_absent)
+# noisy_projection_present = generate_noise(projection_data_present)
+# noisy_projection_absent = generate_noise(projection_data_absent)
 
 reconstructed_present = generate_reconstruction(projection_data_present, H_MP)
 reconstructed_absent = generate_reconstruction(projection_data_absent, H_MP)
 
-noised_signal_present_graph = plot_reconstruction(num_realizations, noisy_projection_present, signal_present_objects, selected_size)
-noised_signal_absent_graph = plot_reconstruction(num_realizations, noisy_projection_absent, signal_absent_objects, selected_size)
+reconstructed__present_graph = plot_reconstruction(num_realizations, reconstructed_present, signal_present_objects, selected_size)
+reconstructed__absent_graph = plot_reconstruction(num_realizations, reconstructed_absent, signal_absent_objects, selected_size)
 
-print(noisy_projection_present.shape)
+print(reconstructed_absent.shape)
 
 
 # 7(c) for CNN training

@@ -1,9 +1,11 @@
 import os
+import random
 import numpy as np
 from keras.models import load_model
 from keras.callbacks import EarlyStopping
 from DL_denoiser import get_cnn
 from image_generation import *
+from evaluate_cnn import *
 from sklearn.metrics import mean_squared_error
 import tensorflow as tf
 
@@ -59,6 +61,7 @@ def prepare_datasets():
         np.save(f'{directory}/test_labels.npy', low_noise_images[test_idx].reshape(-1, 32, 32, 1))
         print(f"Saved train_labels.npy for noise level {noise_level} in {directory}")
 
+
 def load_data(noise_level):
     """
     Load training, validation, and test datasets for a given noise level.
@@ -71,7 +74,7 @@ def load_data(noise_level):
     test_labels = np.load(f'./{noise_level}/test_labels.npy')
     return train_data, train_labels, val_data, val_labels, test_data, test_labels
 
-def train_cnn(noise_level, epochs=100, batch_size=16):
+def train_cnn(noise_level, epochs=50, batch_size=16):
     """
     Train the CNN for a specific noise level.
     """
@@ -101,7 +104,8 @@ def evaluate_model(noise_level, batch_size=16):
 
     rmse = np.sqrt(mean_squared_error(test_labels.flatten(), denoised_images.flatten()))
     print(f"RMSE for {noise_level} noise level: {rmse}")
-    return denoised_images, rmse
+    return denoised_images, rmse, test_data, test_labels
+
 
 if __name__ == "__main__":
     prepare_datasets()
@@ -111,8 +115,17 @@ if __name__ == "__main__":
     for noise in noise_levels:
         train_cnn(noise)
 
+    # random_indices = random.sample(range(1, 501), 3)
     for noise in noise_levels:
-        _, rmse = evaluate_model(noise)
+        denoised_images, rmse, test_data, test_labels= evaluate_model(noise)
+        print(f'test_data 5 is {test_data[5].shape}')
+        print(f'denoised_images 5 is {denoised_images[5].shape}')
+        print(f'test_labels 5 is {test_labels[5].shape}')
         metrics[noise] = rmse
+        # visualize_denoising(test_data[5], denoised_images[5], test_labels[5])
+        visualize_denoising(test_data[5].reshape(32, 32), 
+                    denoised_images[5].reshape(32, 32), 
+                    test_labels[5].reshape(32, 32))
+
 
     print(metrics)

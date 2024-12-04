@@ -47,9 +47,38 @@ def plot_val_loss(noise_levels, epochs=100):
   plt.show()
 
 
+def visualize_denoising(noisy_image, denoised_image, low_noise_image):
+    """Display noisy, denoised, and low-noise images side by side."""
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    # Plot noisy image
+    axes[0].imshow(noisy_image, cmap='viridis', origin='lower')
+    axes[0].set_title("Noisy Image")
+
+    # Plot denoised image
+    axes[1].imshow(denoised_image, cmap='viridis', origin='lower')
+    axes[1].set_title("Denoised Image")
+
+    # Plot low-noise image
+    axes[2].imshow(low_noise_image, cmap='viridis', origin='lower')
+    axes[2].set_title("Low-Noise Image (Ground Truth)")
+
+    plt.tight_layout()
+    plt.show()
+
+    # print(f'test_data shape: {noisy_image.shape}')
+    # print(f'denoised_images shape: {denoised_image.shape}')
+    # print(f'test_labels shape: {low_noise_image.shape}')
+
+
+# Example: Replace these with 
+# actual images
+# visualize_denoising(noisy_image, denoised_image, low_noise_image)
+
 noise_levels = ['Medium', 'High', 'Very_High']
-plot_train_loss(noise_levels=noise_levels)
+# plot_train_loss(noise_levels=noise_levels)
 # plot_val_loss(noise_levels=noise_levels)
+# visualize_denoising(noisy_image, denoised_image, low_noise_image)
 
 
 

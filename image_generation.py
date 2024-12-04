@@ -108,7 +108,7 @@ def plot_generated_objects(signal, background, signal_present):
 
     plt.tight_layout()
     plt.show()
-    # plt.close()
+    plt.close()
 
 plot_generated_objects(signal, background, signal_present)
 
@@ -242,10 +242,11 @@ def plot_reconstruction(num_realizations, reconstructed_images, original_image, 
     for i, (level, recon_images) in enumerate(reconstructed_images.items()):
         axs[i + 1].imshow(recon_images[sample_index].reshape(selected_size, selected_size), cmap='viridis')
         axs[i + 1].set_title(f'Reconstruction ({level} Noise)')
+        axs[i + 1].axis('off')
 
     plt.tight_layout()
     plt.show()
-    # plt.close()
+    plt.close()
 
 
 
@@ -287,7 +288,7 @@ reconstructed_absent = generate_reconstruction(projection_data_absent, H_MP)
 reconstructed__present_graph = plot_reconstruction(num_realizations, reconstructed_present, signal_present_objects, selected_size)
 reconstructed__absent_graph = plot_reconstruction(num_realizations, reconstructed_absent, signal_absent_objects, selected_size)
 
-print(reconstructed_absent.shape)
+# print(reconstructed_absent.shape)
 
 
 # 7(c) for CNN training

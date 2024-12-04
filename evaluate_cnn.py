@@ -1,3 +1,64 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def plot_train_loss(noise_levels, epochs=100):
+  train_loss = []
+  for noise_level in noise_levels:
+    with open(f'./{noise_level}/train_loss_epochs{epochs}.npy', 'rb') as f:
+      loss1 = np.load(f)
+    train_loss.append(loss1)
+
+  plt.figure(figsize=(10, 6))
+  for i, noise_level in enumerate(noise_levels):
+    epochs_list = list(range(1, train_loss[i].shape[0]+1))
+    plt.plot(epochs_list, train_loss[i], label=f'{noise_level}', marker='o')
+  # plt.plot(epochs_list, train_loss[0], label=f'{noise_levels[0]}', marker='o')
+  # plt.plot(epochs_list, train_loss[1], label=f'{noise_levels[1]}', marker='--')
+  # plt.plot(epochs_list, train_loss[2], label=f'{noise_levels[2]}', marker='.')
+  plt.title("Training Loss Function")
+  plt.xlabel('Epoch')
+  plt.ylabel('Loss')
+  plt.grid(True)
+  plt.legend()
+  plt.show()
+  # plt.savefig("../cache/stats.jpg")
+
+
+def plot_val_loss(noise_levels, epochs=100):
+  val_loss = []
+  for noise_level in noise_levels:
+    with open(f'./{noise_level}/val_loss_epochs{epochs}.npy', "rb") as f:
+      loss2 = np.load(f)
+    val_loss.append(loss2)
+
+  plt.figure(figsize=(10, 6))
+  for i, noise_level in enumerate(noise_levels):
+    epochs_list = list(range(1, val_loss[i].shape[0]+1))
+    plt.plot(epochs_list, val_loss[i], label=f'{noise_level}', marker='o')
+  # plt.plot(epochs_list, train_loss[0], label=f'{noise_levels[0]}', marker='o')
+  # plt.plot(epochs_list, train_loss[1], label=f'{noise_levels[1]}', marker='--')
+  # plt.plot(epochs_list, train_loss[2], label=f'{noise_levels[2]}', marker='.')
+  plt.title("Validation Loss Function")
+  plt.xlabel('Epoch')
+  plt.ylabel('Loss')
+  plt.grid(True)
+  plt.legend()
+  plt.show()
+
+
+noise_levels = ['Medium', 'High', 'Very_High']
+plot_train_loss(noise_levels=noise_levels)
+# plot_val_loss(noise_levels=noise_levels)
+
+
+
+
+
+
+
+
+
 # import numpy as np
 # from keras.models import load_model
 # from keras.callbacks import EarlyStopping
@@ -158,56 +219,3 @@
 #     for noise in noise_levels:
 #         print(f"Evaluating CNN for {noise} noise level...")
 #         evaluate_model(noise)
-
-import numpy as np
-import matplotlib.pyplot as plt
-
-
-def plot_train_loss(noise_levels, epochs=100):
-  train_loss = []
-  for noise_level in noise_levels:
-    with open(f'./{noise_level}/train_loss_epochs{epochs}.npy', 'rb') as f:
-      loss1 = np.load(f)
-    train_loss.append(loss1)
-
-  plt.figure(figsize=(10, 6))
-  for i, noise_level in enumerate(noise_levels):
-    epochs_list = list(range(1, train_loss[i].shape[0]+1))
-    plt.plot(epochs_list, train_loss[i], label=f'{noise_level}', marker='o')
-  # plt.plot(epochs_list, train_loss[0], label=f'{noise_levels[0]}', marker='o')
-  # plt.plot(epochs_list, train_loss[1], label=f'{noise_levels[1]}', marker='--')
-  # plt.plot(epochs_list, train_loss[2], label=f'{noise_levels[2]}', marker='.')
-  plt.title("Training Loss Function")
-  plt.xlabel('Epoch')
-  plt.ylabel('Loss')
-  plt.grid(True)
-  plt.legend()
-  plt.show()
-  # plt.savefig("../cache/stats.jpg")
-
-
-def plot_val_loss(noise_levels, epochs=100):
-  val_loss = []
-  for noise_level in noise_levels:
-    with open(f'./{noise_level}/val_loss_epochs{epochs}.npy', "rb") as f:
-      loss2 = np.load(f)
-    val_loss.append(loss2)
-
-  plt.figure(figsize=(10, 6))
-  for i, noise_level in enumerate(noise_levels):
-    epochs_list = list(range(1, val_loss[i].shape[0]+1))
-    plt.plot(epochs_list, val_loss[i], label=f'{noise_level}', marker='o')
-  # plt.plot(epochs_list, train_loss[0], label=f'{noise_levels[0]}', marker='o')
-  # plt.plot(epochs_list, train_loss[1], label=f'{noise_levels[1]}', marker='--')
-  # plt.plot(epochs_list, train_loss[2], label=f'{noise_levels[2]}', marker='.')
-  plt.title("Validation Loss Function")
-  plt.xlabel('Epoch')
-  plt.ylabel('Loss')
-  plt.grid(True)
-  plt.legend()
-  plt.show()
-
-
-noise_levels = ['Medium', 'High', 'Very_High']
-plot_train_loss(noise_levels=noise_levels)
-# plot_val_loss(noise_levels=noise_levels)

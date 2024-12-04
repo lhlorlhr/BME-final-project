@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 
 from skimage.data import shepp_logan_phantom
 from skimage.transform import resize
-from scipy.io import savemat
 
 # 7(a) Population generation
 # Define parameters for grid, signal, and background
@@ -17,13 +16,23 @@ a_n = 1  # Lump amplitude
 M = 32 * 16 # Total number of sensitivity functions
 
 
-# def generate_grid(grid_size):
-#     x = np.linspace(-1/2, 1/2, grid_size) # rect(r)
-#     y = np.linspace(-1/2, 1/2, grid_size)
-#     r_x, r_y = np.meshgrid(x, y)
-#     return r_x, r_y
+def generate_fov_mask(grid_size, radius=0.5):
+    """
+    Generate a circular FOV mask for the image.
 
-# X, Y = generate_grid(grid_size)
+    Parameters:
+    - grid_size (int): Size of the square grid (e.g., 64x64).
+    - radius (float): Radius of the circular FOV, in normalized units (0 to 0.5).
+
+    Returns:
+    - mask (numpy.ndarray): A binary mask of shape (grid_size, grid_size).
+    """
+    x = np.linspace(-0.5, 0.5, grid_size)
+    y = np.linspace(-0.5, 0.5, grid_size)
+    r_x, r_y = np.meshgrid(x, y)
+    mask = (r_x**2 + r_y**2) <= radius**2
+    return mask
+
 
 def circ(r, center_coords, sigma_s):
     r_x, r_y = r
@@ -64,9 +73,17 @@ def generate_background(grid_size, N=10, sigma_n=1/4, a_n=1, num=500):
 
     return pixel * background
 
+def generate_signal_present(signal, background, A_s=3):
+    """
+    Merge the signal and background into a single image.
+    Scale the signal amplitude and add it to the background.
+    """
+    signal_present = background + A_s * signal
+    return signal_present
+
 signal = generate_signal(grid_size, signal_center)
 background = generate_background(grid_size)
-signal_present = signal + background # Signal-present
+signal_present = generate_signal_present(signal, background)
 signal_absent = background  # Signal-absent
 
 # Generate objects with size J
@@ -109,7 +126,7 @@ def plot_generated_objects(signal, background, signal_present):
 
     plt.tight_layout()
     plt.show()
-    plt.close()
+    # plt.close()
 
 plot_generated_objects(signal, background, signal_present)
 
@@ -130,20 +147,32 @@ def downsample(signal_present, signal_absent, factor=2):
     return signal_present, signal_absent
 
 
-def generate_system_matrix(M, pixel_sizes):
-    system_matrix = []
-    num_strips = 32  # Number of horizontal strips = Number of sensitivity functions
-    strip_width = 1 / 16  # Width is fixed
-    num_rotations = 16
-    # for size in pixel_sizes:
-    H = np.zeros((M, pixel_sizes**2))
-    x = np.linspace(-0.5, 0.5, pixel_sizes)
-    y = np.linspace(-0.5, 0.5, pixel_sizes)
-    # x = np.linspace(-1, 1, size)
-    # y = np.linspace(-1, 1, size)
-    xx, yy = np.meshgrid(x, y)
-    # fov_mask = (xx**2 + yy**2) <= 1
+def generate_system_matrix(M, pixel_size, fov_mask=None):
+    """
+    Generate a system matrix with optional FOV masking.
+    
+    Parameters:
+    - M (int): Total number of sensitivity functions.
+    - pixel_size (int): Size of the image grid (e.g., 32x32).
+    - fov_mask (numpy.ndarray): Optional FOV mask to apply (same shape as the image grid).
 
+    Returns:
+    - H (numpy.ndarray): System matrix of shape (M, pixel_size^2).
+    """
+    num_strips = 32  # Number of horizontal strips
+    num_rotations = 16
+    H = np.zeros((M, pixel_size**2))
+    x = np.linspace(-0.5, 0.5, pixel_size)
+    y = np.linspace(-0.5, 0.5, pixel_size)
+    xx, yy = np.meshgrid(x, y)
+
+    if fov_mask is not None:
+        fov_mask_resized = resize(fov_mask.astype(float), (pixel_size, pixel_size), mode='constant', anti_aliasing=False)
+        fov_mask_resized = fov_mask_resized > 0.5  # Convert back to binary
+        H *= fov_mask_resized.flatten()
+    else:
+        fov_mask_resized = np.ones((pixel_size, pixel_size))
+        
     for r in range(num_rotations):
         rotation_angle = r * (np.pi / num_rotations)
         rotation_matrix = np.array([
@@ -155,50 +184,44 @@ def generate_system_matrix(M, pixel_sizes):
         sensitivity = np.zeros_like(r_y)
 
         for m in range(num_strips):
-            y_min = -1 + m / 16
-            y_max = -1 + (m + 1) / 16
+            y_min = -0.5 + m / 32
+            y_max = -0.5 + (m + 1) / 32
             strip_index = ((y_min < r_y) & (r_y <= y_max))
             sensitivity[strip_index] = 1
+
+            # Apply the FOV mask
+            sensitivity *= fov_mask_resized
             matrix_index = r * num_strips + m
             H[matrix_index, :] = sensitivity.ravel()
 
-        system_matrix.append(H)
+    return H
 
 
-            # rotated_strip = np.zeros_like(strip_index)
-            # for i in range(size):
-            #     for j in range(size):
-            #         x_rot = cos_angle * xx[i, j] - sin_angle * yy[i, j]
-            #         y_rot = sin_angle * xx[i, j] + cos_angle * yy[i, j]
-            #         if y_min <= y_rot < y_max:
-            #             rotated_strip[i, j] = 1
-            # rotated_strip *= fov_mask
-            # system_matrix.append(rotated_strip.flatten())
-                # Rotate strips to simulate sensitivity functions
-    # full_system_matrix = []
-    # for rotation in range(size):
-    #     rotated_matrix = np.roll(system_matrix, shift=rotation, axis=0)
-    #     full_system_matrix.append(rotated_matrix)
-
-    # # Convert system matrix to numpy array
-    # H = np.vstack(full_system_matrix)
-    # system_matrices[size] = H
-    return system_matrix
-
-
-def generate_pseudoinverse(size, H):
-    svd_results = {}  # Store SVD results
-    pseudoinverses = {}  # Store pseudoinverses
-    # Compute SVD of the system matrix
+def generate_pseudoinverse(size, H, reg_param=1e-2):
     U, S, Vt = np.linalg.svd(H, full_matrices=False)
-    svd_results[size] = {'U': U, 'S': S, 'Vt': Vt}
+    S_reg_inv = np.diag([1/s if s > reg_param else 0 for s in S])
+    H_MP_reg = Vt.T @ S_reg_inv @ U.T
+    return H_MP_reg
 
-    # Compute the pseudoinverse of the system operator
-    S_inv = np.diag(1 / S)
-    pseudoinverse = Vt.T @ S_inv @ U.T
-    pseudoinverses[size] = pseudoinverse
-    return svd_results, pseudoinverse
 
+def add_noise_levels(projection_data, noise_levels):
+    """
+    Add Poisson noise to the projection data for multiple noise levels.
+
+    Parameters:
+    - projection_data (numpy.ndarray): Clean projection data (ḡ).
+    - noise_levels (dict): Noise levels with total intensity sums.
+
+    Returns:
+    - noisy_projections (dict): Projection data with noise added for each level.
+    """
+    noisy_projections = {}
+    for level, total_sum in noise_levels.items():
+        # Scale projection data to the desired total intensity
+        scaled_data = projection_data * (total_sum / np.sum(projection_data, axis=1, keepdims=True))
+        # Add Poisson noise
+        noisy_projections[level] = np.random.poisson(scaled_data)
+    return noisy_projections
 
 # Add Poisson noise at different levels
 def generate_reconstruction(projection_data, H_MP):
@@ -243,13 +266,23 @@ def plot_reconstruction(num_realizations, reconstructed_images, original_image, 
     for i, (level, recon_images) in enumerate(reconstructed_images.items()):
         axs[i + 1].imshow(recon_images[sample_index].reshape(selected_size, selected_size), cmap='viridis')
         axs[i + 1].set_title(f'Reconstruction ({level} Noise)')
-        axs[i + 1].axis('off')
 
     plt.tight_layout()
     plt.show()
-    plt.close()
+    # plt.close()
 
+# Generate FOV mask
+fov_mask = generate_fov_mask(grid_size, radius=0.5)
 
+# Generate signal, background, and signal-present
+signal = generate_signal(grid_size, signal_center, sigma_s=1/4, A_s=5)
+background = generate_background(grid_size)
+signal_present = generate_signal_present(signal, background)
+
+# Apply FOV mask to all images
+signal_present = signal_present * fov_mask
+signal_absent = background * fov_mask
+background = background * fov_mask  # Ensure consistency
 
 num_realizations = 500
 selected_size = 32
@@ -259,10 +292,9 @@ noise_levels = {
     "High": 10000,
     "Very_High": 2500
 }
-# system_matrices = {}  # Store system matrices for each pixel size
-system_matrices = generate_system_matrix(M, pixel_sizes)
-H = system_matrices[0]
-_, H_MP = generate_pseudoinverse(selected_size, H) # Print singular values and vectors or not?
+
+H = generate_system_matrix(M, pixel_sizes, fov_mask=fov_mask)
+H_MP = generate_pseudoinverse(selected_size, H) # Print singular values and vectors or not?
 
 # Downsampling a 64x64 image to 32x32
 downsampled_present, downsampled_absent = downsample(signal_present, signal_absent)  # Downsample by 2
@@ -278,125 +310,23 @@ signal_absent_realizations = signal_absent_objects.reshape(500, -1)
 
 projection_data_present = np.dot(H, signal_present_realizations.T).T  # g = Hf, (512, 32x32) * (500, 32x32)^T = (512, 500)
 projection_data_absent = np.dot(H, signal_absent_realizations.T).T # (512, 500)^T = (500, 512)
-# projection_data = [projection_data_present, projection_data_absent]
 
-# noisy_projection_present = generate_noise(projection_data_present)
-# noisy_projection_absent = generate_noise(projection_data_absent)
+# Apply noise levels and visualize projections
+for noise_level, noise_scale in noise_levels.items():
+    # Scale the projection data
+    scaled_projections = projection_data_present * (noise_scale / np.sum(projection_data_present, axis=1, keepdims=True))
+    noisy_projections = np.random.poisson(scaled_projections)
 
+    # # Visualize the noisy projection
+    # plt.imshow(noisy_projections[0].reshape(16, 32), cmap="viridis")
+    # plt.title(f"Noisy Projection ({noise_level})")
+    # plt.show()
+    
 reconstructed_present = generate_reconstruction(projection_data_present, H_MP)
 reconstructed_absent = generate_reconstruction(projection_data_absent, H_MP)
 
 reconstructed__present_graph = plot_reconstruction(num_realizations, reconstructed_present, signal_present_objects, selected_size)
 reconstructed__absent_graph = plot_reconstruction(num_realizations, reconstructed_absent, signal_absent_objects, selected_size)
 
-
-# Ensure system matrix is generated
-system_matrices = generate_system_matrix(M, pixel_sizes)
-H = system_matrices[0]  # Assuming the first matrix is what you need
-
-# Save H as .mat file
-savemat('H.mat', {'H': H})
-print("H.mat has been created.")
-
-
-# print(reconstructed_absent.shape)
-
-
-# 7(c) for CNN training
-
-
-
-# def prepare_datasets(noise_level, noisy_projection_present, noisy_projection_absent):
-#     # Shuffle the datasets
-#     np.random.seed(42)  # For reproducibility
-#     indices = np.random.permutation(1000)
-#     # Split indices for training, validation, and testing
-#     train_idx = indices[:600]
-#     val_idx = indices[600:800]
-#     test_idx = indices[800:]
-#     for noise_level in noisy_projection_present.keys():
-#         print(f"Processing noise level: {noise_level}")  # Debugging print
-
-#         noisy_images = np.concatenate([noisy_projection_present[noise_level], noisy_projection_absent[noise_level]], axis=0)
-#         low_noise_images = np.concatenate([noisy_projection_present["Low"], noisy_projection_absent["Low"]], axis=0)
-#         print(f"Noisy images shape before reshaping: {noisy_images.shape}")
-#         print(f"Low noise images shape before reshaping: {low_noise_images.shape}")
-
-#         # Check for NaN and infinite values
-#         if np.isnan(noisy_images).any() or np.isnan(low_noise_images).any():
-#             print(f"NaN detected in dataset generation for {noise_level}!")
-#             noisy_images = np.nan_to_num(noisy_images, nan=0.0)
-#             low_noise_images = np.nan_to_num(low_noise_images, nan=0.0)
-#         if not np.isfinite(noisy_images).all() or not np.isfinite(low_noise_images).all():
-#             print(f"Infinite values detected in dataset generation for {noise_level}!")
-#             noisy_images = np.nan_to_num(noisy_images, posinf=0.0, neginf=0.0)
-#             low_noise_images = np.nan_to_num(low_noise_images, posinf=0.0, neginf=0.0)
-
-#         # Reshape and save datasets
-#         np.save(f'train_data_{noise_level}.npy', noisy_images[train_idx])
-#         np.save(f'val_data_{noise_level}.npy', noisy_images[val_idx])
-#         np.save(f'test_data_{noise_level}.npy', noisy_images[test_idx])
-
-#         np.save('train_labels.npy', low_noise_images[train_idx])
-#         np.save('val_labels.npy', low_noise_images[val_idx])
-#         np.save('test_labels.npy', low_noise_images[test_idx])
-
-
-# train_data = np.load(f'train_data_{noise_level}.npy')
-# val_data = np.load(f'val_data_{noise_level}.npy')
-# test_data = np.load(f'test_data_{noise_level}.npy')
-
-# train_labels = np.load('train_labels.npy')
-# val_labels = np.load('val_labels.npy')
-# test_labels = np.load('test_labels.npy')
-
-
-
-
-
-
-
-
-
-
-
-
-
-# H = system_matrices[selected_size]  # System matrix for the selected pixel size
-# H_pseudo = pseudoinverses[selected_size]  # Pseudoinverse for reconstruction
-
-# Simulated object realizations (signal-present objects)
-# signal_present_realizations = np.random.rand(num_realizations, selected_size**2)  # Mock for demonstration
-
-# Step iv: Generate projection data
-
-# # Step iv example: Generate projection data of shepp_logan_phantom
-# phantom = shepp_logan_phantom()
-# phantom_resized = resize(phantom, (32, 32), mode='reflect', anti_aliasing=True)
-
-# my_image = phantom_resized
-# f_input = my_image.flatten()
-# g_input = np.dot(H, f_input)
-# projection_data = g_input
-
-
-# Step vi: Reconstruct images using the pseudoinverse
-
-
-# print(reconstructed_images['Low'].shape) # (500, grid x grid)
-
-
-# # Save the results for further use
-# np.savez('reconstruction_results.npz', projection_data=projection_data,
-#          noisy_projections=noisy_projections, reconstructed_images=reconstructed_images)
-
-
-# # 7(c) for CNN training
-# # Shuffle the datasets
-# np.random.seed(42)  # For reproducibility
-# indices = np.random.permutation(500)
-
-# # Split indices for training, validation, and testing
-# train_indices = indices[:300]
-# val_indices = indices[300:400]
-# test_indices = indices[400:]
+scaled_projections = projection_data_present * (noise_scale / np.sum(projection_data_present, axis=1, keepdims=True))
+noisy_projections = np.random.poisson(scaled_projections)

@@ -78,13 +78,10 @@ def generate_signal_present(signal, background, A_s=3):
     Merge the signal and background into a single image.
     Scale the signal amplitude and add it to the background.
     """
-    signal_present = background + A_s * signal
+    # signal_present = background + A_s * signal
+    signal_present = background + signal
     return signal_present
 
-signal = generate_signal(grid_size, signal_center)
-background = generate_background(grid_size)
-signal_present = generate_signal_present(signal, background)
-signal_absent = background  # Signal-absent
 
 # Generate objects with size J
 def generate_multiple_objects(signal_present, signal_absent, grid_size, J):
@@ -128,8 +125,6 @@ def plot_generated_objects(signal, background, signal_present):
     plt.show()
     # plt.close()
 
-plot_generated_objects(signal, background, signal_present)
-
 
 # Part 7(b) Image generation
 # Initialize lists to store results for different pixel sizes
@@ -150,7 +145,7 @@ def downsample(signal_present, signal_absent, factor=2):
 def generate_system_matrix(M, pixel_size, fov_mask=None):
     """
     Generate a system matrix with optional FOV masking.
-    
+
     Parameters:
     - M (int): Total number of sensitivity functions.
     - pixel_size (int): Size of the image grid (e.g., 32x32).
@@ -172,8 +167,8 @@ def generate_system_matrix(M, pixel_size, fov_mask=None):
         H *= fov_mask_resized.flatten()
     else:
         fov_mask_resized = np.ones((pixel_size, pixel_size))
-        
-    for r in range(num_rotations):
+
+    for r in range(num_rotations): # num_rotations = 16
         rotation_angle = r * (np.pi / num_rotations)
         rotation_matrix = np.array([
             [np.cos(rotation_angle), -np.sin(rotation_angle)],
@@ -183,9 +178,11 @@ def generate_system_matrix(M, pixel_size, fov_mask=None):
         r_y = rotated_coordinates[1, :].reshape(xx.shape)
         sensitivity = np.zeros_like(r_y)
 
-        for m in range(num_strips):
+        for m in range(num_strips): # num_strips = 32
             y_min = -0.5 + m / 32
             y_max = -0.5 + (m + 1) / 32
+            # y_min = -1 + m / 16
+            # y_max = -1 + (m + 1) /16
             strip_index = ((y_min < r_y) & (r_y <= y_max))
             sensitivity[strip_index] = 1
 
@@ -197,31 +194,38 @@ def generate_system_matrix(M, pixel_size, fov_mask=None):
     return H
 
 
-def generate_pseudoinverse(size, H, reg_param=1e-2):
+def generate_pseudoinverse(size, H, fov_mask, reg_param=1e-3):
     U, S, Vt = np.linalg.svd(H, full_matrices=False)
     S_reg_inv = np.diag([1/s if s > reg_param else 0 for s in S])
     H_MP_reg = Vt.T @ S_reg_inv @ U.T
+    # # Resize the FOV mask to match the image size
+    # fov_mask_resized = resize(fov_mask.astype(float), (size, size), mode='constant', anti_aliasing=False)
+    # fov_mask_resized = fov_mask_resized.flatten()  # Flatten the mask to apply to H_MP
+
+    # # Apply the FOV mask to the pseudoinverse matrix
+    # H_MP_masked = H_MP_reg * fov_mask_resized[:, np.newaxis]  # Apply mask along the rows
+
     return H_MP_reg
 
 
-def add_noise_levels(projection_data, noise_levels):
-    """
-    Add Poisson noise to the projection data for multiple noise levels.
+# def add_noise_levels(projection_data, noise_levels):
+#     """
+#     Add Poisson noise to the projection data for multiple noise levels.
 
-    Parameters:
-    - projection_data (numpy.ndarray): Clean projection data (ḡ).
-    - noise_levels (dict): Noise levels with total intensity sums.
+#     Parameters:
+#     - projection_data (numpy.ndarray): Clean projection data (ḡ).
+#     - noise_levels (dict): Noise levels with total intensity sums.
 
-    Returns:
-    - noisy_projections (dict): Projection data with noise added for each level.
-    """
-    noisy_projections = {}
-    for level, total_sum in noise_levels.items():
-        # Scale projection data to the desired total intensity
-        scaled_data = projection_data * (total_sum / np.sum(projection_data, axis=1, keepdims=True))
-        # Add Poisson noise
-        noisy_projections[level] = np.random.poisson(scaled_data)
-    return noisy_projections
+#     Returns:
+#     - noisy_projections (dict): Projection data with noise added for each level.
+#     """
+#     noisy_projections = {}
+#     for level, total_sum in noise_levels.items():
+#         # Scale projection data to the desired total intensity
+#         scaled_data = projection_data * (total_sum / np.sum(projection_data, axis=1, keepdims=True))
+#         # Add Poisson noise
+#         noisy_projections[level] = np.random.poisson(scaled_data)
+#     return noisy_projections
 
 # Add Poisson noise at different levels
 def generate_reconstruction(projection_data, H_MP):
@@ -244,15 +248,15 @@ def generate_reconstruction(projection_data, H_MP):
 
     return reconstructed_images
 
-# Add Poisson noise at different levels
-def generate_noise(projection_data):
-    noisy_projections = {}
+# # Add Poisson noise at different levels
+# def generate_noise(projection_data):
+#     noisy_projections = {}
 
-    for level, scale in noise_levels.items():
-        scaled_projections = projection_data * (scale / np.sum(projection_data, axis=1, keepdims=True))
-        noisy_projections[level] = np.random.poisson(scaled_projections)
+#     for level, scale in noise_levels.items():
+#         scaled_projections = projection_data * (scale / np.sum(projection_data, axis=1, keepdims=True))
+#         noisy_projections[level] = np.random.poisson(scaled_projections)
 
-    return noisy_projections
+#     return noisy_projections
 
 
 # Visualize a sample reconstruction for each noise level
@@ -275,14 +279,18 @@ def plot_reconstruction(num_realizations, reconstructed_images, original_image, 
 fov_mask = generate_fov_mask(grid_size, radius=0.5)
 
 # Generate signal, background, and signal-present
-signal = generate_signal(grid_size, signal_center, sigma_s=1/4, A_s=5)
+signal = generate_signal(grid_size, signal_center) # (64,64)
 background = generate_background(grid_size)
 signal_present = generate_signal_present(signal, background)
+signal_absent = background  # Signal-absent
+
 
 # Apply FOV mask to all images
 signal_present = signal_present * fov_mask
 signal_absent = background * fov_mask
 background = background * fov_mask  # Ensure consistency
+
+plot_generated_objects(signal, background, signal_present)
 
 num_realizations = 500
 selected_size = 32
@@ -293,10 +301,12 @@ noise_levels = {
     "Very_High": 2500
 }
 
-H = generate_system_matrix(M, pixel_sizes, fov_mask=fov_mask)
-H_MP = generate_pseudoinverse(selected_size, H) # Print singular values and vectors or not?
+# fov_mask_resized = resize(fov_mask.astype(float), (32, 32), mode='constant', anti_aliasing=False)
 
-# Downsampling a 64x64 image to 32x32
+H = generate_system_matrix(M, pixel_sizes, fov_mask=fov_mask) # (512, 1024)
+H_MP = generate_pseudoinverse(selected_size, H, fov_mask=fov_mask) # (1024, 512)
+
+# Downsampling a 64x64 image to 32x32, (32,32)
 downsampled_present, downsampled_absent = downsample(signal_present, signal_absent)  # Downsample by 2
 # downsampled_absent = downsample(signal_absent)
 print("Original shape:", signal_present.shape)
@@ -305,28 +315,44 @@ print("Downsampled signal absent:", downsampled_absent.shape)
 
 # signal_present_objects, signal_absent_objects = generate_multiple_objects(signal_present, signal_absent, grid_size = selected_size, J = 500)
 signal_present_objects, signal_absent_objects = generate_multiple_objects(downsampled_present, downsampled_absent, grid_size = selected_size, J = 500)
-signal_present_realizations = signal_present_objects.reshape(500, -1)
+signal_present_realizations = signal_present_objects.reshape(500, -1) # (500,32,32)-->(500,1024)
 signal_absent_realizations = signal_absent_objects.reshape(500, -1)
 
 projection_data_present = np.dot(H, signal_present_realizations.T).T  # g = Hf, (512, 32x32) * (500, 32x32)^T = (512, 500)
 projection_data_absent = np.dot(H, signal_absent_realizations.T).T # (512, 500)^T = (500, 512)
 
-# Apply noise levels and visualize projections
-for noise_level, noise_scale in noise_levels.items():
-    # Scale the projection data
-    scaled_projections = projection_data_present * (noise_scale / np.sum(projection_data_present, axis=1, keepdims=True))
-    noisy_projections = np.random.poisson(scaled_projections)
+# # Apply noise levels and visualize projections
+# for noise_level, noise_scale in noise_levels.items():
+#     # Scale the projection data
+#     scaled_projections = projection_data_present * (noise_scale / np.sum(projection_data_present, axis=1, keepdims=True))
+#     noisy_projections = np.random.poisson(scaled_projections)
 
     # # Visualize the noisy projection
     # plt.imshow(noisy_projections[0].reshape(16, 32), cmap="viridis")
     # plt.title(f"Noisy Projection ({noise_level})")
     # plt.show()
-    
-reconstructed_present = generate_reconstruction(projection_data_present, H_MP)
+
+reconstructed_present = generate_reconstruction(projection_data_present, H_MP) #'Low' = (500, 1024)
 reconstructed_absent = generate_reconstruction(projection_data_absent, H_MP)
+# fov_mask_resized = resize(fov_mask, (selected_size, selected_size), mode='constant', anti_aliasing=False)
+# for noise_level in noise_levels.keys():
+#     # Apply FOV mask to signal-present reconstructed images
+#     reconstructed_present[noise_level] = np.array([
+#         (image.reshape(selected_size, selected_size) * fov_mask_resized).flatten()
+#         for image in reconstructed_present[noise_level]
+#     ])
 
-reconstructed__present_graph = plot_reconstruction(num_realizations, reconstructed_present, signal_present_objects, selected_size)
-reconstructed__absent_graph = plot_reconstruction(num_realizations, reconstructed_absent, signal_absent_objects, selected_size)
+#     # Apply FOV mask to signal-absent reconstructed images
+#     reconstructed_absent[noise_level] = np.array([
+#         (image.reshape(selected_size, selected_size) * fov_mask_resized).flatten()
+#         for image in reconstructed_absent[noise_level]
+#     ])
+# # for noise_level, noise_scale in noise_levels.items():
+# #     reconstructed_present[noise_level] = reconstructed_present[noise_level] * fov_mask
+# #     reconstructed_absent[noise_level] = reconstructed_absent[noise_level] * fov_mask
 
-scaled_projections = projection_data_present * (noise_scale / np.sum(projection_data_present, axis=1, keepdims=True))
-noisy_projections = np.random.poisson(scaled_projections)
+reconstructed_present_graph = plot_reconstruction(num_realizations, reconstructed_present, signal_present_objects, selected_size)
+reconstructed_absent_graph = plot_reconstruction(num_realizations, reconstructed_absent, signal_absent_objects, selected_size)
+
+# scaled_projections = projection_data_present * (noise_scale / np.sum(projection_data_present, axis=1, keepdims=True))
+# noisy_projections = np.random.poisson(scaled_projections)

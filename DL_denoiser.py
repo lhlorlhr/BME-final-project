@@ -45,7 +45,7 @@ def loss_fn(y_true, y_pred):
     data_fidelity = tf.reduce_mean(tf.square(data_fidelity))
     return data_fidelity
 
-# Repeating layers throughout the network 
+# Repeating layers throughout the network
 def add_common_layers(filters, kernelsize, std, layer, bias_ct=0.03, leaky_alpha=0.01, drop_prob=0.1):
     if std == 2:
         pad = 'valid'
@@ -67,7 +67,7 @@ def add_common_layers(filters, kernelsize, std, layer, bias_ct=0.03, leaky_alpha
 def get_cnn(Nx):
     # This model has skip connections in place, here we use element-wise addition.
     # Define Convolutional Neural Network
-    # Input shape 
+    # Input shape
     input_layer = Input(shape=(Nx, Nx, 1))
     conv1 = add_common_layers(16, (3, 3), 1, layer=input_layer)
     x = add_common_layers(16, (2, 2), 2, conv1)

@@ -137,7 +137,7 @@ def prepare_datasets(indices):
 #     test_labels = np.load(f'{directory}/test_labels.npy')
 #     return train_data, train_labels, val_data, val_labels, test_data, test_labels
 
-def train_cnn(train_data, train_labels, val_data, val_labels, noise_level, epochs=100, batch_size=16):
+def train_cnn(train_data, train_labels, val_data, val_labels, noise_level, epochs=200, batch_size=24):
     """
     Train the CNN for a specific noise level.
     """
@@ -150,10 +150,10 @@ def train_cnn(train_data, train_labels, val_data, val_labels, noise_level, epoch
     # Use an optimizer with a lower learning rate
     optimizer = Adam(learning_rate=0.0005)
     model.compile(optimizer=optimizer, loss='mean_squared_error')
-    model.summary()
+    # model.summary()
 
     # early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-    early_stop = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
+    early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
     history = model.fit(
         train_data, train_labels,
         validation_data=(val_data, val_labels),
@@ -169,7 +169,7 @@ def train_cnn(train_data, train_labels, val_data, val_labels, noise_level, epoch
     np.save(f'{directory}/val_loss_epochs{epochs}.npy', history.history['val_loss'])
 
 
-def evaluate_model(test_data, test_labels, noise_level, batch_size=16):
+def evaluate_model(test_data, test_labels, noise_level, noiseless_objects, batch_size=24):
     """
     Evaluate the trained CNN model.
     """
@@ -203,12 +203,14 @@ def evaluate_model(test_data, test_labels, noise_level, batch_size=16):
         rmse_i = np.sqrt(mse_i)
         rmse_per_image.append(rmse_i)
 
-    mse = np.mean((test_labels.flatten() - denoised_images.flatten()) ** 2)
-    rmse_mean = np.sqrt(mse)
+    mse_label = np.mean((test_labels.flatten() - denoised_images.flatten()) ** 2)
+    rmse_mean_label = np.sqrt(mse_label)
+    mse_gt = np.mean((noiseless_objects.flatten() - denoised_images.flatten()) ** 2)
+    rmse_mean_gt = np.sqrt(mse_gt)
 
     # rmse = np.sqrt(mean_squared_error(test_labels.flatten(), denoised_images.flatten()))
-    print(f"RMSE for {noise_level} noise level: {rmse_mean}")
-    return denoised_images, rmse_mean, rmse_per_image
+    print(f"RMSE for {noise_level} noise level: {rmse_mean_label}")
+    return denoised_images, rmse_mean_label, rmse_mean_gt, rmse_per_image
 
 
 def plot_noiseless_image(signal_present_objects, signal_absent_objects, idx):
@@ -265,7 +267,7 @@ def visualize_denoising(noisy_image, denoised_image, low_noise_image, noise_leve
     plt.show()
 
 
-def plot_loss_curves(noise_levels, epochs=100):
+def plot_loss_curves(noise_levels, epochs=200):
     """
     Plot training and validation loss curves for each noise level.
     """
@@ -287,7 +289,7 @@ def plot_loss_curves(noise_levels, epochs=100):
         plt.show()
 
 
-def plot_combined_loss(noise_levels, epochs=100):
+def plot_combined_loss(noise_levels, epochs=200):
     """
     Plot training and validation loss curves for all noise levels in one graph.
 
@@ -326,13 +328,17 @@ if __name__ == "__main__":
     num_samples = 500
     indices = np.random.permutation(num_samples)
     prepare_datasets(indices)
-    metrics = {}
+    metrics_label = {}
+    metrics_gt = {}
     rmse_boxplot = {}
 
     idx = np.random.randint(0, 100)
     noise_levels = ['Medium', 'High', 'Very_High']
     signal_present_objects = image_generation.signal_present_objects
     signal_absent_objects = image_generation.signal_absent_objects
+    noiseless_test_present = signal_present_objects[indices[400:500]]
+    noiseless_test_absent = signal_absent_objects[indices[400:500]]
+    noiseless_objects = np.concatenate([noiseless_test_present, noiseless_test_absent], axis=0)
     plot_noiseless_image(signal_present_objects, signal_absent_objects, indices[400+idx]) # test_idx = indices[400:500]
     for noise in noise_levels:
         print(f"Training CNN for noise level: {noise}")
@@ -347,8 +353,9 @@ if __name__ == "__main__":
 
     # for noise in noise_levels:
         print(f"Evaluating CNN for noise level: {noise}")
-        denoised_images, rmse_mean, rmse_per_image = evaluate_model(test_data, test_labels, noise)
-        metrics[noise] = rmse_mean
+        denoised_images, rmse_mean_label, rmse_mean_gt, rmse_per_image = evaluate_model(test_data, test_labels, noise, noiseless_objects)
+        metrics_label[noise] = rmse_mean_label
+        metrics_gt[noise] = rmse_mean_gt
         rmse_boxplot[noise] = rmse_per_image
         # Visualize the denoising result for a random sample
         print('Plotting signal present denoised image...')
@@ -385,7 +392,8 @@ if __name__ == "__main__":
     # plt.grid(True)
     # plt.show()
 
-    print("RMSE Metrics:", metrics)
+    print("RMSE Metrics between low noise and denoised is:", metrics_label)
+    print("RMSE Metrics between noiseless image and denoised is:", metrics_gt)
 
     # Assuming rmse_boxplot and noise_levels are already defined
     data = [rmse_boxplot[noise] for noise in noise_levels]

@@ -7,10 +7,13 @@ from keras.callbacks import EarlyStopping
 from keras.optimizers import Adam
 from sklearn.metrics import mean_squared_error
 import tensorflow as tf
+from skimage.metrics import peak_signal_noise_ratio as psnr
+from skimage.metrics import structural_similarity as ssim
 from DL_denoiser import get_cnn
 import image_generation
 # from image_generation import *
 
+np.random.seed(42)
 
 def prepare_datasets(indices):
     """
@@ -27,20 +30,12 @@ def prepare_datasets(indices):
 
     reconstructed_present = image_generation.reconstructed_present #'Low' = (500, 1024) * 4 noise level
     reconstructed_absent = image_generation.reconstructed_absent
-    # projection_data_present = image_generation.projection_data_present
-    # projection_data_absent = image_generation.projection_data_absent
-    # reconstructed_images = np.concatenate([reconstructed_present, reconstructed_absent], axis=0)
-    # original_images = np.concatenate([projection_data_present, projection_data_absent], axis=0)
-
 
     # Prepare datasets for each noise level
     for noise_level in noise_levels.keys():
         print(f"Processing noise level: {noise_level}")
         noisy_images = np.concatenate([reconstructed_present[noise_level], reconstructed_absent[noise_level]], axis=0)
-        # noisy_images = reconstructed_images[noise_level]
-        # Use low noise datasets as labels
         low_noise_images = np.concatenate([reconstructed_present['Low'], reconstructed_absent['Low']], axis=0)
-        # low_noise_images = reconstructed_images['Low']
 
         # # Handle NaN and infinite values
         # reconstructed_present[noise_level] = np.nan_to_num(reconstructed_present[noise_level], nan=0.0, posinf=0.0, neginf=0.0)
@@ -65,10 +60,6 @@ def prepare_datasets(indices):
         #     reconstructed_present['Low'] = reconstructed_present['Low'].astype('float32') / max_value
         #     reconstructed_absent['Low'] = reconstructed_absent['Low'].astype('float32') / max_value
 
-        # # Convert data types
-        # noisy_images = noisy_images.astype('float32')
-        # low_noise_images = low_noise_images.astype('float32')
-
         # Reshape images to (num_samples, selected_size, selected_size, 1)
         assert reconstructed_present[noise_level].shape[0] == reconstructed_absent[noise_level].shape[0]
         num_samples = reconstructed_present[noise_level].shape[0] # num_samples = 500
@@ -76,17 +67,12 @@ def prepare_datasets(indices):
         noisy_images_absent = reconstructed_absent[noise_level].reshape(num_samples, selected_size, selected_size, 1) #(500,32,32,1)
         low_noise_images_present = reconstructed_present['Low'].reshape(num_samples, selected_size, selected_size, 1)
         low_noise_images_absent = reconstructed_absent['Low'].reshape(num_samples, selected_size, selected_size, 1)
-        # noisy_images = noisy_images.reshape(num_samples, selected_size, selected_size, 1) #(1000,32,32,1)
-        # low_noise_images = low_noise_images.reshape(num_samples, selected_size, selected_size, 1)
 
         # Shuffle and split data
         # indices = np.random.permutation(num_samples)
         train_idx = indices[:300]
         val_idx = indices[300:400]
         test_idx = indices[400:500]
-        # train_idx = indices[:600]
-        # val_idx = indices[600:800]
-        # test_idx = indices[800:1000]
 
         # Create directories and save files
         directory = f'./{noise_level}'
@@ -124,35 +110,18 @@ def prepare_datasets(indices):
         print(f"Saved datasets for noise level {noise_level} in {directory}")
 
 
-# def load_data(noise_level):
-#     """
-#     Load training, validation, and test datasets for a given noise level.
-#     """
-#     directory = f'./{noise_level}'
-#     train_data = np.load(f'{directory}/train_data.npy')
-#     val_data = np.load(f'{directory}/val_data.npy')
-#     test_data = np.load(f'{directory}/test_data.npy')
-#     train_labels = np.load(f'{directory}/train_labels.npy')
-#     val_labels = np.load(f'{directory}/val_labels.npy')
-#     test_labels = np.load(f'{directory}/test_labels.npy')
-#     return train_data, train_labels, val_data, val_labels, test_data, test_labels
-
-def train_cnn(train_data, train_labels, val_data, val_labels, noise_level, epochs=200, batch_size=24):
+def train_cnn(train_data, train_labels, val_data, val_labels, noise_level, epochs=200, batch_size=16):
     """
     Train the CNN for a specific noise level.
     """
-    # train_data, train_labels, val_data, val_labels, _, _ = load_data(noise_level)
 
-    # model = get_cnn(train_data.shape[1])  # Use image size from data
     print(f'train_data.shape is: {train_data.shape}')
     model = get_cnn(train_data.shape[1])
 
-    # Use an optimizer with a lower learning rate
-    optimizer = Adam(learning_rate=0.0005)
+    optimizer = Adam(learning_rate=0.001)
     model.compile(optimizer=optimizer, loss='mean_squared_error')
     # model.summary()
 
-    # early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
     early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
     history = model.fit(
         train_data, train_labels,
@@ -169,33 +138,18 @@ def train_cnn(train_data, train_labels, val_data, val_labels, noise_level, epoch
     np.save(f'{directory}/val_loss_epochs{epochs}.npy', history.history['val_loss'])
 
 
-def evaluate_model(test_data, test_labels, noise_level, noiseless_objects, batch_size=24):
+def evaluate_model(test_data, test_labels, noise_level, noiseless_objects, batch_size=16):
     """
     Evaluate the trained CNN model.
     """
-    # _, _, _, _, test_data, test_labels = load_data(noise_level)
     directory = f'./{noise_level}'
     model = load_model(f'{directory}/cnn_denoising_model.h5')
     print(f'test_data.shape is: {test_data.shape}')
     denoised_images = model.predict(test_data, batch_size=batch_size)
-    # denoised_images_present = model.predict(test_data[0:100], batch_size=batch_size)
-    # denoised_images_absent = model.predict(test_data[100:200], batch_size=batch_size)
 
     directory = f'./{noise_level}'
     np.save(f'{directory}/predicted_images_present.npy', denoised_images[:100])
     np.save(f'{directory}/predicted_images_absent.npy', denoised_images[100:200])
-
-    # low_noise_images = np.asarray(low_noise_images)
-    # denoised_images = np.asarray(denoised_images)
-
-    # # Check if shapes match
-    # if low_noise_image.shape != denoised_image.shape:
-    #     raise ValueError("Images must have the same dimensions.")
-
-    # Compute RMSE
-    # rmse = []
-    # for i in range(test_data.shape[0]):
-    #     rmse.append(np.sqrt(np.mean((test_labels[i].flatten() - denoised_images[i].flatten()) ** 2)))
 
     rmse_per_image = []
     for i in range(len(test_labels)):
@@ -208,7 +162,6 @@ def evaluate_model(test_data, test_labels, noise_level, noiseless_objects, batch
     mse_gt = np.mean((noiseless_objects.flatten() - denoised_images.flatten()) ** 2)
     rmse_mean_gt = np.sqrt(mse_gt)
 
-    # rmse = np.sqrt(mean_squared_error(test_labels.flatten(), denoised_images.flatten()))
     print(f"RMSE for {noise_level} noise level: {rmse_mean_label}")
     return denoised_images, rmse_mean_label, rmse_mean_gt, rmse_per_image
 
@@ -216,7 +169,6 @@ def evaluate_model(test_data, test_labels, noise_level, noiseless_objects, batch
 def plot_noiseless_image(signal_present_objects, signal_absent_objects, idx):
     fig, axes = plt.subplots(1, 2, figsize=(15, 5))
 
-    # test_data[idx].reshape(test_data.shape[1], test_data.shape[2]),
     # Plot noisy image
     axes[0].imshow(signal_present_objects[idx], cmap='viridis', origin='lower')
     axes[0].set_title(f"Signal_Present Object (Ground Truth)")
@@ -230,22 +182,8 @@ def plot_noiseless_image(signal_present_objects, signal_absent_objects, idx):
     plt.show()
 
 
-
 def visualize_denoising(noisy_image, denoised_image, low_noise_image, noise_level):
     """Display noisy, denoised, and low-noise images side by side."""
-    # Normalize images for display
-    # def normalize_image(img):
-    #     img_min = img.min()
-    #     img_max = img.max()
-    #     if img_max - img_min == 0:
-    #         return np.zeros_like(img)
-    #     else:
-    #         return (img - img_min) / (img_max - img_min)
-
-    # noisy_image_disp = normalize_image(noisy_image)
-    # denoised_image_disp = normalize_image(denoised_image)
-    # low_noise_image_disp = normalize_image(low_noise_image)
-
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
     # Plot noisy image
@@ -324,6 +262,60 @@ def plot_combined_loss(noise_levels, epochs=200):
     plt.tight_layout()
     plt.show()
 
+
+def plot_rmse_boxplot(noise_levels,rmse_boxplot):
+    # Assuming rmse_boxplot and noise_levels are already defined
+    data = [rmse_boxplot[noise] for noise in noise_levels]
+
+    fig = plt.figure(figsize=(10, 7))
+    ax = fig.add_axes([0, 0, 1, 1])
+
+    # Creating the boxplot
+    bp = ax.boxplot(data, patch_artist=True, boxprops=dict(facecolor='skyblue', color='blue'),
+                    whiskerprops=dict(color='blue'), capprops=dict(color='blue'))
+    ax.set_title("RMSE Boxplot by Noise Levels")
+    ax.set_xlabel("Noise Levels")
+    ax.set_ylabel("RMSE")
+    ax.set_xticks(range(1, len(noise_levels) + 1))
+    ax.set_xticklabels(noise_levels)
+
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.show()
+
+
+def compute_psnr_ssim(denoised_images, reference_images):
+    """
+    Compute PSNR and SSIM between two sets of images.
+
+    Parameters:
+    - denoised_images: numpy array of denoised images [N, H, W]
+    - reference_images: numpy array of ground truth images [N, H, W]
+
+    Returns:
+    - avg_psnr: Average PSNR over all images
+    - avg_ssim: Average SSIM over all images
+    """
+    psnr_values = []
+    ssim_values = []
+
+    for denoised, reference in zip(denoised_images, reference_images):
+        # Ensure images are normalized between 0 and 1 for SSIM computation
+        denoised = np.clip(denoised, 0, 1)
+        reference = np.clip(reference, 0, 1)
+
+        # Compute PSNR and SSIM
+        psnr_value = psnr(reference, denoised, data_range=1.0)
+        ssim_value = ssim(reference, denoised, data_range=1.0)
+
+        psnr_values.append(psnr_value)
+        ssim_values.append(ssim_value)
+
+    avg_psnr = np.mean(psnr_values)
+    avg_ssim = np.mean(ssim_values)
+
+    return avg_psnr, avg_ssim
+
+
 if __name__ == "__main__":
     num_samples = 500
     indices = np.random.permutation(num_samples)
@@ -351,7 +343,6 @@ if __name__ == "__main__":
         test_labels = np.load(f'{directory}/test_labels.npy')
         train_cnn(train_data, train_labels, val_data, val_labels, noise)
 
-    # for noise in noise_levels:
         print(f"Evaluating CNN for noise level: {noise}")
         denoised_images, rmse_mean_label, rmse_mean_gt, rmse_per_image = evaluate_model(test_data, test_labels, noise, noiseless_objects)
         metrics_label[noise] = rmse_mean_label
@@ -373,49 +364,16 @@ if __name__ == "__main__":
             test_labels[idx+100].reshape(test_labels.shape[1], test_labels.shape[2]),
             noise
         )
-    # print(metrics)
-    # print(test_data[idx].reshape(test_data.shape[1], test_data.shape[2]))
-    # print(denoised_images[idx].reshape(denoised_images.shape[1], denoised_images.shape[2]))
-    # print(test_labels[idx].reshape(test_labels.shape[1], test_labels.shape[2]))
+        print(denoised_images.shape)
+        print(noiseless_objects.shape)
+        avg_psnr, avg_ssim = compute_psnr_ssim(denoised_images.reshape(200, 32, 32), noiseless_objects)
+        print(f'The PSNR for {noise} is: {avg_psnr}')
+        print(f'The SSIM for {noise} is: {avg_ssim}')
+
     # Plot training and validation loss curves
     plot_loss_curves(noise_levels)
     plot_combined_loss(noise_levels)
-
-    # Plot RMSE metrics
-    # plt.figure(figsize=(8, 6))
-    # noise_labels = list(metrics.keys())
-    # rmse_values = [metrics[noise] for noise in noise_labels]
-    # plt.bar(noise_labels, rmse_values, color=['blue', 'orange', 'green'])
-    # plt.title('RMSE Metrics for Different Noise Levels')
-    # plt.xlabel('Noise Level')
-    # plt.ylabel('RMSE')
-    # plt.grid(True)
-    # plt.show()
-
+    plot_rmse_boxplot(noise_levels,rmse_boxplot)
     print("RMSE Metrics between low noise and denoised is:", metrics_label)
     print("RMSE Metrics between noiseless image and denoised is:", metrics_gt)
 
-    # Assuming rmse_boxplot and noise_levels are already defined
-    data = [rmse_boxplot[noise] for noise in noise_levels]
-
-    fig = plt.figure(figsize=(10, 7))
-    ax = fig.add_axes([0, 0, 1, 1])
-
-    # Creating the boxplot
-    bp = ax.boxplot(data, patch_artist=True, boxprops=dict(facecolor='skyblue', color='blue'),
-                    whiskerprops=dict(color='blue'), capprops=dict(color='blue'))
-
-    # Adding titles and labels
-    ax.set_title("RMSE Boxplot by Noise Levels")
-    ax.set_xlabel("Noise Levels")
-    ax.set_ylabel("RMSE")
-
-    # Set x-axis ticks to correspond to noise levels
-    ax.set_xticks(range(1, len(noise_levels) + 1))
-    ax.set_xticklabels(noise_levels)
-
-    # Adding grid
-    plt.grid(True, linestyle='--', alpha=0.7)
-
-    # Show the plot
-    plt.show()
